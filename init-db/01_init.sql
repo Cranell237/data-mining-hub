@@ -20,4 +20,5 @@ CREATE TABLE IF NOT EXISTS customer_credit_transactions (
  ('CUST-1005', 52, NULL, 790, 40000.00, FALSE, 'Sierra'),
  ('CUST-1006', 23, 18500.00, 580, 3500.00, TRUE, 'Costa'),
  ('CUST-1007', 41, 62000.00, 740, 18000.00, FALSE, 'Costa'),
- ('CUST-1008', 60, 95000.00, NULL, 15000.00, FALSE, 'Insular');
+ ('CUST-1008', 60, 95000.00, NULL, 15000.00, FALSE, 'Insular'),
+ ('CUST-1009', 38, 28500.00, 630, 9500.00, FALSE, 'Costa');
