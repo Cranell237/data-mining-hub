@@ -6,8 +6,9 @@ Implementa la "tríada patológica" de la diapositiva del tema:
   (`sklearn.impute.KNNImputer`).
 * **Inconsistencias**: normalización de categóricas (regiones sucias con
   espacios/mayúsculas) y valores fuera de rango de negocio.
-* **Outliers**: detección por Z-score (|z| > 3) e IQR, y tratamiento por
-  eliminación, acotamiento (capping) o transformación logarítmica.
+* **Outliers**: detección por Z-score (|z| > 3), IQR y MAD (Median Absolute
+  Deviation, robusto ante el *masking*), y tratamiento por eliminación,
+  acotamiento (capping) o transformación logarítmica.
 
 `run_cleaning_pipeline()` materializa el resultado en la tabla
 ``customer_credit_clean``, dejando la tabla cruda intacta — el patrón
@@ -36,7 +37,11 @@ VALID_RANGES = {
 }
 
 IMPUTATION_STRATEGIES = ("mean", "median", "mode", "knn")
-DETECTION_METHODS = ("iqr", "zscore")
+DETECTION_METHODS = ("iqr", "zscore", "mad")
+
+# Factor de escala que lleva la MAD a una desviación estándar equivalente
+# bajo normalidad (constante estándar 1/Φ⁻¹(3/4)).
+MAD_SCALE = 1.4826
 OUTLIER_ACTIONS = ("drop", "cap", "log")
 
 
@@ -179,7 +184,16 @@ def impute_column(
 def detect_outlier_mask(
     df: pd.DataFrame, column: str, method: str
 ) -> pd.Series:
-    """Máscara booleana de outliers: ``iqr`` (1.5·IQR) o ``zscore`` (|z|>3)."""
+    """Máscara booleana de outliers.
+
+    Métodos:
+      - ``iqr``    : fuera de ``[Q1 - 1.5·IQR, Q3 + 1.5·IQR]``.
+      - ``zscore`` : ``|z| > 3`` respecto a media y desviación estándar.
+      - ``mad``    : ``|x - mediana| / (1.4826·MAD) > 3``. Usa mediana y MAD,
+        estimadores resistentes, por lo que —a diferencia de z-score— un
+        único valor extremo no infla el umbral y deja de "enmascarar" a los
+        demás outliers.
+    """
     s = df[column].dropna()
     if method == "zscore":
         std = s.std()
@@ -187,6 +201,13 @@ def detect_outlier_mask(
             return pd.Series(False, index=df.index)
         z = (df[column] - s.mean()) / std
         return z.abs() > 3
+    if method == "mad":
+        median = s.median()
+        mad = (s - median).abs().median()
+        scaled = MAD_SCALE * mad
+        if scaled == 0 or pd.isna(scaled):
+            return pd.Series(False, index=df.index)
+        return ((df[column] - median) / scaled).abs() > 3
     q1, q3 = s.quantile(0.25), s.quantile(0.75)
     iqr = q3 - q1
     return (df[column] < q1 - 1.5 * iqr) | (df[column] > q3 + 1.5 * iqr)
@@ -213,6 +234,10 @@ def treat_outliers(
         s = df[column].dropna()
         if method == "zscore":
             lo, hi = s.mean() - 3 * s.std(), s.mean() + 3 * s.std()
+        elif method == "mad":
+            median = s.median()
+            scaled = MAD_SCALE * (s - median).abs().median()
+            lo, hi = median - 3 * scaled, median + 3 * scaled
         else:
             q1, q3, iqr = s.quantile(0.25), s.quantile(0.75), (
                 s.quantile(0.75) - s.quantile(0.25)
